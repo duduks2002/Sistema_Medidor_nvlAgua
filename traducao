@@ -1,0 +1,53 @@
+
+#Estava realizando a tradução das variaveis e funções do software de monitoramento --> Em andamento
+
+class LeituraArduino:
+	def __init__(self,porta):
+		self.porta_serial = porta
+		self.conexao_serial = None
+		Self.Iniciar = False
+		self.data = []
+		self.root = None
+
+	def Conexao(self):
+		try:
+			self.conexao_serial.Serial(self.porta_serial, baudrate=9600, timeout=2)
+			return True
+		except serial.SerialException as e:
+			messagebox.showerror("Erro", f"Erro na conexão com o Arduino : {e}")
+			return False
+
+	def Leitura_de_Dados(self):
+		while self.Iniciar:
+			linha = self.conexao_serial.readline().decode("utf-8").strip()
+			if linha:
+				self.data[].append(line)
+				if line == "LIMITE ALCANÇADO !!":
+					self.show_alert()
+					time.sleep(5)
+	
+	def Iniciar_Leitura(self):
+		if not self.Iniciar:
+			self.Iniciar = True
+			threading.Thread(target=self.Leitura_de_Dados).start()
+
+	def Parar_Leitura(self):
+		self.Iniciar = False
+		if self.conexao_serial:
+			self.conexao_serial.close()
+
+	def Mostrar_Alerta(self):
+		resposta = messagebox.askyesno( "Alerta", "Valor 1 encontrado! Deseja acender o LED?")
+		if resposta:
+			self.Acender_Led()
+
+	def Acender_Led(self):
+		self.conexao_serial.write(b'7')
+
+	def Salvar_CSV(self, filename):
+		with open(filename,'w',newline='') as file:
+			writer = csv.writer(file)
+			writer.writerow(["Leitura"])
+		for item in self.data:
+			writer.writerow([item])
+
