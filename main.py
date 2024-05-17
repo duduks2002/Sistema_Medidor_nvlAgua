@@ -1,50 +1,152 @@
-import time
-import datetime
+'''
+Responsável:Edward A Fernandes --> https://github.com/duduks2002
+Data de criação: 11/12/2023
+Data de última atualização: 17/12/2023
+Projeto: Software Monitoramento nível de água
+
+Objetivo:
+Criar uma aplicação que consiga realizar a conexão ao microcrontolador arduino utilizando a biblioteca serial , verificar a saida mandada pelo sensor 
+e alertar em uma mensagebox quando o limite for atingido, dando a opção ao usuario de mandar um comando ao arduino para 
+ ativar uma bomba/porta/ algo que ajude a esvaziar aquele reservatorio.
+
+REGRAS DE UTILIZAÇÂO:
+- apertar conectar -> iniciar leitura -> parar leitura --> salvar csv.
+    caso pare a leitura e queira retomar deve apertar CONECTAR novamente e INICIAR LEITURA.
+'''
+import tkinter as tk
+from tkinter import messagebox
 import serial
 import csv
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+import threading
+import time
 
-def animação(i, datalist, ser):
-    ser.write(b'g')
-    arduinoData_String = ser.readline().decode('ascii')
-    try:
-        arduinoData = int(arduinoData_String)
-        datalist.append(arduinoData)
-    except:
-        pass
-    datalist = datalist[-5:]  # esse comando faz com que leia 5 numeros no grafico
+class ArduinoReader:
+    def __init__(self, port):
+        self.serial_port = port
+        self.serial_connection = None
+        self.is_reading = False
+        self.data = []
+        self.root = None 
+        self.led_status_label = None
 
-    ax.clear()
-    ax.plot(datalist, '-o')
-    ax.set_ylim([0,1])
-    ax.set_title("Saida Serial")
-    ax.set_ylabel('MÍNIMO ------------------------ LIMITE')
+    def connect(self):
+        try:
+            self.serial_connection = serial.Serial(self.serial_port, baudrate=9600, timeout=2)
+            return True
+        except serial.SerialException as e:
+            messagebox.showerror("Erro", f"Erro na conexão com Arduino: {e}")
+            return False
 
-def salvar_em_csv(lista):
-    # Obter a data atual
-    data_arquivo = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    data_formatada = datetime.datetime.now().strftime("%d/%m/%Y")
-    # Nome do arquivo CSV com a data atual
-    nome_arquivo =  f'log\dados_{data_arquivo}.csv'
+    def read_data(self):
+        while self.is_reading:
+            line = self.serial_connection.readline().decode("utf-8").strip()
+            if line:
+                self.data.append(line)
+                if line == "LIMITE ALCANÇADO !!":
+                    self.show_alert()
+                    #time.sleep(25)
 
-    # Escrever os dados da lista no arquivo CSV
-    with open(nome_arquivo, 'w', newline='') as arquivo_csv:
-        escritor_csv = csv.writer(arquivo_csv)
-        escritor_csv.writerow(['Dado', 'Data'])  # Cabeçalho do CSV
+    def start_reading(self):
+        if not self.is_reading:
+            self.is_reading = True
+            threading.Thread(target=self.read_data).start()
+            
+    def stop_reading(self):
+        self.is_reading = False
+        if self.serial_connection:
+            self.serial_connection.close()
 
-        for dado in lista:
-            escritor_csv.writerow([dado, data_formatada])
-datalist = []
+    def show_alert(self):
+        resposta = messagebox.askyesno( "Alerta", "LIMITE ALCANÇADO!\nDeseja acender o LED?")
+        if resposta:
+            self.acender_led()
 
-fig = plt.figure("MEDIDOR DE NIVEL D'AGUA")
-ax = fig.add_subplot(111)
-ser = serial.Serial("COM3", 9600)
-time.sleep(2)
+    def acender_led(self):
+        time.sleep(0.5)
+        c = 0
+        # Envia o comando para acender o LED (pino digital 7)
+        while c<6:
+            self.serial_connection.write(b'7')
+            c +=1
+        self.serial_connection.flush()
+       
+    def save_to_csv(self, filename):
+        with open(filename, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["Leitura"])
+            for item in self.data:
+                writer.writerow([item])
+ 
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Monitoramento Nivel de Água")
+        self.root.geometry("500x300")
+        self.root.resizable(False, False)  # Tornar a tela não redimensionável
+        self.arduino = ArduinoReader(port="COM3") 
+        self.arduino.root = self.root
 
-ani = animation.FuncAnimation(fig, animação, frames=100, fargs=(datalist, ser), interval= 800)
-#linha de cima é responsavel por chamar a função diversas vezes
+        self.root.configure(bg="#1e1e1e")  # Configura o fundo para cinza quase preto
 
-plt.show()
-ser.close()
-salvar_em_csv(datalist)
+        # Botões
+        self.connect_button = tk.Button(root, text="Conectar Arduino", command=self.connect_arduino, bg="#3498db", fg="white", height=2, width=15, bd=0, borderwidth=5, relief=tk.RIDGE)
+        self.connect_button.place(y=20, x=135)
+
+        self.start_button = tk.Button(root, text="Iniciar Leitura", command=self.start_reading, bg="#3498db", fg="white", height=2, width=15, bd=0, borderwidth=5, relief=tk.RIDGE)
+        self.start_button.place(y=85, x=135)
+
+        self.stop_button = tk.Button(root, text="Parar Leitura", command=self.stop_reading, bg="#3498db", fg="white", height=2, width=15, bd=0, borderwidth=5, relief=tk.RIDGE)
+        self.stop_button.place(y=85, x=270)
+
+        self.save_button = tk.Button(root, text="Salvar CSV", command=self.save_to_csv, bg="#3498db", fg="white", height=2, width=15, bd=0, borderwidth=5, relief=tk.RIDGE)
+        self.save_button.place(y=20, x= 270)
+        
+        # Labels
+        self.status_label = tk.Label(root, text="Status: Não Conectado", bg="#5C5C5C", fg="white", height=2, width=20)
+        self.status_label.place(y=250, x=50)
+
+        self.output_label = tk.Label(root, text="Saída do Arduino: ", bg="#5C5C5C", fg="white", height=2, width=15)
+        self.output_label.place(y=250, x=220)
+
+        self.reading_label = tk.Label(root, text="", bg="#5C5C5C", fg="white", height=2, width=20)
+        self.reading_label.place(y=250, x=325)
+
+        #self.led_status_label = tk.Label(root, text="teste", bg="#5C5C5C", fg="white", height=2, width=20)
+        #self.led_status_label.place(y=170, x=325)
+
+
+    def connect_arduino(self):
+        if self.arduino.connect():
+            self.status_label.config(text="Status: Conectado")
+ 
+
+    def start_reading(self):
+        self.arduino.start_reading()
+        self.root.after(2000, self.update_reading_label)
+
+    def update_reading_label(self):
+        if self.arduino.is_reading:
+            if self.arduino.data:
+                self.reading_label.config(text=f"{self.arduino.data[-1]}")
+                if self.arduino.data[-1] == "LIMITE ALCANÇADO !!":
+                    self.reading_label.config(bg="#ffa500")  # Muda para laranja suave
+                else:
+                    self.reading_label.config(bg="#5C5C5C")
+            else:
+                self.reading_label.config(text="Sem leituras ainda")
+            self.root.after(2000, self.update_reading_label)
+
+    def stop_reading(self):
+        self.arduino.stop_reading()
+        self.status_label.config(text="Status: Desconectado")
+
+    def save_to_csv(self):
+        filename = "leituras.csv"
+        self.arduino.save_to_csv(filename)
+        messagebox.showinfo("Sucesso", f"Leituras salvas em {filename}")
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = App(root)
+    root.mainloop()
